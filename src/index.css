@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 84% 5%;
+    --foreground: 210 40% 98%;
+    --card: 222 84% 5%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 84% 5%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 84% 5%;
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 43 96% 56%;
+    --accent-foreground: 222 84% 5%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 32% 17%;
+    --input: 217 32% 17%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+    --chart-1: 217 91% 60%;
+    --chart-2: 43 96% 56%;
+    --chart-3: 142 76% 36%;
+    --chart-4: 47 96% 89%;
+    --chart-5: 0 84% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+
+    font-family: Inter, sans-serif;
+  }
+}
+
+/* Flight Simulator Specific Styles */
+.hud-text {
+  font-family: Inter, monospace;
+  text-shadow: 0 0 10px rgb(245 158 11 / 80%);
+}
+
+.instrument-panel {
+  background: linear-gradient(135deg, rgb(30 64 175 / 10%), rgb(15 23 42 / 90%));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgb(30 64 175 / 30%);
+}
+
+.control-button {
+  background: linear-gradient(135deg, rgb(30 64 175 / 80%), rgb(15 23 42 / 90%));
+  border: 1px solid rgb(245 158 11 / 50%);
+  transition: all 0.3s ease;
+}
+
+.control-button:hover {
+  background: linear-gradient(135deg, rgb(30 64 175 / 100%), rgb(15 23 42 / 80%));
+  border-color: rgb(245 158 11 / 80%);
+  box-shadow: 0 0 20px rgb(245 158 11 / 30%);
+}
+
+.altitude-indicator {
+  background: radial-gradient(circle, rgb(30 64 175 / 20%), rgb(15 23 42 / 80%));
+}
+
+.speed-indicator {
+  background: radial-gradient(circle, rgb(245 158 11 / 20%), rgb(15 23 42 / 80%));
+}
