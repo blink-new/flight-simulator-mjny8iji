@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Sky, Plane, Text } from '@react-three/drei';
+import { OrbitControls, Sky, Text, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { 
   Gauge, 
@@ -9,11 +9,18 @@ import {
   Play, 
   Pause, 
   Camera,
-  Settings
+  Settings,
+  Wind,
+  Thermometer,
+  Fuel,
+  Zap,
+  TrendingUp,
+  TrendingDown,
+  Minus
 } from 'lucide-react';
 
 // Aircraft component
-function Aircraft({ position, rotation, onUpdate }: any) {
+function Aircraft({ position, rotation, flaps, onUpdate }: any) {
   const meshRef = useRef<THREE.Mesh>(null);
   
   useFrame(() => {
@@ -24,6 +31,8 @@ function Aircraft({ position, rotation, onUpdate }: any) {
     }
   });
 
+  const flapAngle = (flaps / 40) * Math.PI / 6; // Max 30 degrees
+
   return (
     <group ref={meshRef}>
       {/* Aircraft body */}
@@ -32,10 +41,20 @@ function Aircraft({ position, rotation, onUpdate }: any) {
         <meshStandardMaterial color="#e5e7eb" />
       </mesh>
       
-      {/* Wings */}
+      {/* Main Wings */}
       <mesh position={[0, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
         <boxGeometry args={[6, 0.2, 1]} />
         <meshStandardMaterial color="#d1d5db" />
+      </mesh>
+      
+      {/* Wing Flaps */}
+      <mesh position={[-2.5, 0, 0.3]} rotation={[flapAngle, 0, Math.PI / 2]}>
+        <boxGeometry args={[1, 0.1, 0.4]} />
+        <meshStandardMaterial color="#9ca3af" />
+      </mesh>
+      <mesh position={[2.5, 0, 0.3]} rotation={[flapAngle, 0, Math.PI / 2]}>
+        <boxGeometry args={[1, 0.1, 0.4]} />
+        <meshStandardMaterial color="#9ca3af" />
       </mesh>
       
       {/* Tail */}
@@ -48,6 +67,12 @@ function Aircraft({ position, rotation, onUpdate }: any) {
       <mesh position={[0, 1, -1.5]}>
         <boxGeometry args={[0.1, 2, 0.5]} />
         <meshStandardMaterial color="#d1d5db" />
+      </mesh>
+      
+      {/* Propeller */}
+      <mesh position={[0, 0, 2]}>
+        <cylinderGeometry args={[0.05, 0.05, 0.2, 8]} />
+        <meshStandardMaterial color="#374151" />
       </mesh>
     </group>
   );
@@ -132,7 +157,15 @@ export default function FlightSimulator() {
     heading: 0,
     throttle: 0,
     landingGear: true,
-    engineStatus: 'IDLE'
+    engineStatus: 'IDLE',
+    weather: 'CLEAR',
+    windSpeed: 5,
+    temperature: 15,
+    fuel: 100,
+    engineTemp: 75,
+    flaps: 0,
+    verticalSpeed: 0,
+    gForce: 1.0
   });
   
   const [aircraftState, setAircraftState] = useState({
@@ -177,6 +210,11 @@ export default function FlightSimulator() {
         if (keys.has('shift')) newThrottle = Math.min(100, newThrottle + 2);
         if (keys.has('control')) newThrottle = Math.max(0, newThrottle - 2);
         
+        // Flaps control
+        let newFlaps = flightData.flaps;
+        if (keys.has('f')) newFlaps = Math.min(40, newFlaps + 10);
+        if (keys.has('g')) newFlaps = Math.max(0, newFlaps - 10);
+        
         // Flight controls
         const pitchSpeed = 0.02;
         const rollSpeed = 0.03;
@@ -199,11 +237,27 @@ export default function FlightSimulator() {
         
         // Apply physics
         const thrust = (newThrottle / 100) * 0.5;
+        const liftMultiplier = 1 + (newFlaps / 100); // Flaps increase lift
+        const dragMultiplier = 1 + (newFlaps / 200); // Flaps increase drag
+        
         const forward = new THREE.Vector3(0, 0, thrust);
         forward.applyEuler(newState.rotation);
         
+        // Add lift based on speed and angle of attack
+        const speed = newState.velocity.length();
+        const lift = speed * Math.sin(-newState.rotation.x) * liftMultiplier * 0.1;
+        const liftForce = new THREE.Vector3(0, lift, 0);
+        
         newState.velocity.add(forward);
-        newState.velocity.multiplyScalar(0.98); // Air resistance
+        newState.velocity.add(liftForce);
+        
+        // Gravity
+        newState.velocity.y -= 0.01;
+        
+        // Air resistance with drag
+        newState.velocity.multiplyScalar(0.98 / dragMultiplier);
+        
+        const prevY = newState.position.y;
         newState.position.add(newState.velocity);
         
         // Ground collision
@@ -212,18 +266,35 @@ export default function FlightSimulator() {
           newState.velocity.y = 0;
         }
         
+        // Calculate vertical speed and G-force
+        const verticalSpeed = (newState.position.y - prevY) * 600; // Convert to ft/min
+        const gForce = Math.abs(verticalSpeed / 100) + 1;
+        
         // Update flight data
-        const speed = newState.velocity.length() * 100;
+        const currentSpeed = newState.velocity.length() * 100;
         const altitude = Math.max(0, newState.position.y * 10);
         const heading = ((newState.rotation.y * 180 / Math.PI) + 360) % 360;
         
+        // Fuel consumption
+        const fuelConsumption = (newThrottle / 100) * 0.02;
+        const newFuel = Math.max(0, flightData.fuel - fuelConsumption);
+        
+        // Engine temperature
+        const targetTemp = 75 + (newThrottle / 100) * 50;
+        const newEngineTemp = flightData.engineTemp + (targetTemp - flightData.engineTemp) * 0.1;
+        
         setFlightData(prev => ({
           ...prev,
-          speed: Math.round(speed),
+          speed: Math.round(currentSpeed),
           altitude: Math.round(altitude),
           heading: Math.round(heading),
           throttle: newThrottle,
-          engineStatus: newThrottle > 0 ? 'RUNNING' : 'IDLE'
+          flaps: newFlaps,
+          fuel: Math.round(newFuel * 10) / 10,
+          engineTemp: Math.round(newEngineTemp),
+          verticalSpeed: Math.round(verticalSpeed),
+          gForce: Math.round(gForce * 10) / 10,
+          engineStatus: newFuel > 0 && newThrottle > 0 ? 'RUNNING' : newFuel <= 0 ? 'FUEL OUT' : 'IDLE'
         }));
         
         return newState;
@@ -231,7 +302,7 @@ export default function FlightSimulator() {
     }, 16); // ~60fps
 
     return () => clearInterval(interval);
-  }, [isPlaying, flightData.throttle]);
+  }, [isPlaying, flightData.throttle, flightData.flaps, flightData.fuel, flightData.engineTemp]);
 
   const toggleLandingGear = () => {
     setFlightData(prev => ({ ...prev, landingGear: !prev.landingGear }));
@@ -254,10 +325,12 @@ export default function FlightSimulator() {
         <directionalLight position={[10, 10, 5]} intensity={1} />
         
         <Sky sunPosition={[100, 20, 100]} />
+        <Stars radius={300} depth={60} count={1000} factor={7} saturation={0} fade speed={1} />
         
         <Aircraft
           position={aircraftState.position}
           rotation={aircraftState.rotation}
+          flaps={flightData.flaps}
           onUpdate={setAircraft}
         />
         
@@ -274,7 +347,7 @@ export default function FlightSimulator() {
       <div className="absolute inset-0 pointer-events-none">
         {/* Top HUD */}
         <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
-          {/* Flight Instruments */}
+          {/* Primary Flight Instruments */}
           <div className="instrument-panel rounded-lg p-4 pointer-events-auto">
             <div className="grid grid-cols-2 gap-4 text-amber-400">
               <div className="text-center">
@@ -287,6 +360,19 @@ export default function FlightSimulator() {
                 <div className="hud-text text-2xl font-bold">{flightData.altitude}</div>
                 <div className="hud-text text-xs opacity-75">FT</div>
               </div>
+              <div className="text-center">
+                <div className="hud-text text-xs opacity-75">V/S</div>
+                <div className={`hud-text text-lg font-bold ${flightData.verticalSpeed > 0 ? 'text-green-400' : flightData.verticalSpeed < 0 ? 'text-red-400' : 'text-amber-400'}`}>
+                  {flightData.verticalSpeed > 0 ? '+' : ''}{flightData.verticalSpeed}
+                </div>
+                <div className="hud-text text-xs opacity-75">FPM</div>
+              </div>
+              <div className="text-center">
+                <div className="hud-text text-xs opacity-75">G-FORCE</div>
+                <div className={`hud-text text-lg font-bold ${flightData.gForce > 2 ? 'text-red-400' : 'text-amber-400'}`}>
+                  {flightData.gForce}G
+                </div>
+              </div>
             </div>
           </div>
 
@@ -298,16 +384,50 @@ export default function FlightSimulator() {
               <Navigation className="w-6 h-6 mx-auto mt-2" style={{ transform: `rotate(${flightData.heading}deg)` }} />
             </div>
           </div>
+
+          {/* Weather Panel */}
+          <div className="instrument-panel rounded-lg p-4 pointer-events-auto">
+            <div className="text-center text-amber-400">
+              <div className="hud-text text-xs opacity-75">WEATHER</div>
+              <div className="hud-text text-sm font-bold">{flightData.weather}</div>
+              <div className="flex items-center justify-center gap-2 mt-1">
+                <Wind className="w-4 h-4" />
+                <span className="hud-text text-xs">{flightData.windSpeed} KT</span>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <Thermometer className="w-4 h-4" />
+                <span className="hud-text text-xs">{flightData.temperature}°C</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Bottom Controls */}
         <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
-          {/* Engine Status */}
+          {/* Engine & Fuel Status */}
           <div className="instrument-panel rounded-lg p-4 pointer-events-auto">
-            <div className="text-amber-400">
-              <div className="hud-text text-xs opacity-75">ENGINE</div>
-              <div className="hud-text text-lg font-bold">{flightData.engineStatus}</div>
-              <div className="hud-text text-xs opacity-75">THROTTLE: {flightData.throttle}%</div>
+            <div className="text-amber-400 space-y-2">
+              <div>
+                <div className="hud-text text-xs opacity-75">ENGINE</div>
+                <div className={`hud-text text-lg font-bold ${flightData.engineStatus === 'FUEL OUT' ? 'text-red-400' : flightData.engineStatus === 'RUNNING' ? 'text-green-400' : 'text-amber-400'}`}>
+                  {flightData.engineStatus}
+                </div>
+                <div className="hud-text text-xs opacity-75">THROTTLE: {flightData.throttle}%</div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="text-center">
+                  <Fuel className={`w-4 h-4 mx-auto ${flightData.fuel < 20 ? 'text-red-400' : 'text-amber-400'}`} />
+                  <div className={`hud-text text-sm font-bold ${flightData.fuel < 20 ? 'text-red-400' : 'text-amber-400'}`}>
+                    {flightData.fuel}%
+                  </div>
+                </div>
+                <div className="text-center">
+                  <Thermometer className={`w-4 h-4 mx-auto ${flightData.engineTemp > 110 ? 'text-red-400' : 'text-amber-400'}`} />
+                  <div className={`hud-text text-sm font-bold ${flightData.engineTemp > 110 ? 'text-red-400' : 'text-amber-400'}`}>
+                    {flightData.engineTemp}°C
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -335,12 +455,20 @@ export default function FlightSimulator() {
             </button>
           </div>
 
-          {/* Landing Gear Status */}
+          {/* Landing Gear & Flaps Status */}
           <div className="instrument-panel rounded-lg p-4 pointer-events-auto">
-            <div className="text-amber-400">
-              <div className="hud-text text-xs opacity-75">GEAR</div>
-              <div className={`hud-text text-lg font-bold ${flightData.landingGear ? 'text-green-400' : 'text-red-400'}`}>
-                {flightData.landingGear ? 'DOWN' : 'UP'}
+            <div className="text-amber-400 space-y-2">
+              <div className="text-center">
+                <div className="hud-text text-xs opacity-75">GEAR</div>
+                <div className={`hud-text text-lg font-bold ${flightData.landingGear ? 'text-green-400' : 'text-red-400'}`}>
+                  {flightData.landingGear ? 'DOWN' : 'UP'}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="hud-text text-xs opacity-75">FLAPS</div>
+                <div className={`hud-text text-lg font-bold ${flightData.flaps > 0 ? 'text-green-400' : 'text-amber-400'}`}>
+                  {flightData.flaps}°
+                </div>
               </div>
             </div>
           </div>
@@ -354,6 +482,8 @@ export default function FlightSimulator() {
               <div>WASD / Arrows: Pitch & Roll</div>
               <div>Shift: Increase Throttle</div>
               <div>Ctrl: Decrease Throttle</div>
+              <div>F: Extend Flaps</div>
+              <div>G: Retract Flaps</div>
               <div>Camera: {cameraMode.toUpperCase()}</div>
             </div>
           </div>
